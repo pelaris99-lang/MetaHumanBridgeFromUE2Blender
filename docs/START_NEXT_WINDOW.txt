@@ -1,0 +1,11 @@
+请读取并遵守这个交接文档：
+C:\Users\Siyuan Ouyang\OneDrive\Art\3D\CodexWorkSpace\handoff_metahuman_pipeline_20260525\docs\HANDOFF.md
+
+继续接手 MetaForge / metahuman_blender_pipeline。当前插件约为 0.1.25，源码、zip、Blender 5.1 已安装激活版和正式样例 blend 都已准备好。
+
+重点：
+1. 先不要碰用户的 GraceSwat 工程。
+2. 不要主动目视检查或截图；用户会自己看。
+3. 继续前先检查 C 盘空间，上一轮空间很低，Blender 保存失败可能报 Error: No error / No such file or directory。
+4. 若需要验证，优先跑 handoff 文档列出的后台 analyze 脚本。
+5. 下一步主要等用户基于 0.1.25 的实际反馈，围绕 ControlRig 粗细/显示、LOD 显示、体型同步和参数语义继续微调。

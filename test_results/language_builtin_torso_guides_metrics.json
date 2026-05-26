@@ -1,0 +1,121 @@
+{
+  "version": [
+    0,
+    1,
+    40
+  ],
+  "bundled_source": {
+    "dcc_export": "C:\\Users\\Siyuan Ouyang\\OneDrive\\Art\\3D\\CodexWorkSpace\\SafeZone\\MetaForge\\addon\\metahuman_blender_pipeline\\bundled_metahuman\\OutPut\\DCCExport",
+    "character_dir": "C:\\Users\\Siyuan Ouyang\\OneDrive\\Art\\3D\\CodexWorkSpace\\SafeZone\\MetaForge\\addon\\metahuman_blender_pipeline\\bundled_metahuman\\OutPut\\DCCExport\\NewMetaHumanCharacter",
+    "maps": "C:\\Users\\Siyuan Ouyang\\OneDrive\\Art\\3D\\CodexWorkSpace\\SafeZone\\MetaForge\\addon\\metahuman_blender_pipeline\\bundled_metahuman\\OutPut\\DCCExport\\NewMetaHumanCharacter\\Maps",
+    "face_fbx": "C:\\Users\\Siyuan Ouyang\\OneDrive\\Art\\3D\\CodexWorkSpace\\SafeZone\\MetaForge\\addon\\metahuman_blender_pipeline\\bundled_metahuman\\OutPut\\Face\\NewMetaHumanCharacter_ExportedFace.FBX",
+    "body_fbx": "C:\\Users\\Siyuan Ouyang\\OneDrive\\Art\\3D\\CodexWorkSpace\\SafeZone\\MetaForge\\addon\\metahuman_blender_pipeline\\bundled_metahuman\\OutPut\\Body\\NewMetaHumanCharacter_ExportedBody.FBX"
+  },
+  "control_language": {
+    "zh": {
+      "language": "ZH",
+      "control_rig": {
+        "language": "ZH",
+        "renamed": 0,
+        "controls": 342
+      },
+      "guides": {
+        "language": "ZH",
+        "labels": 0
+      }
+    },
+    "en": {
+      "language": "EN",
+      "control_rig": {
+        "language": "EN",
+        "renamed": 342,
+        "controls": 342
+      },
+      "guides": {
+        "language": "EN",
+        "labels": 0
+      }
+    }
+  },
+  "guide_language": {
+    "created": 12,
+    "updated": 0,
+    "total": 12,
+    "labels": 12
+  },
+  "normal_mix_defaults": {
+    "胸部.粗细.法向混合": 0.85,
+    "腰部.粗细.法向混合": 0.85,
+    "胯部.粗细.法向混合": 0.9
+  },
+  "chest_weight_boosted": 0.42000000000000004,
+  "distributions": {
+    "胸部粗细": {
+      "front": {
+        "count": 120,
+        "mean": 0.3283507461894702,
+        "max": 0.7762722133324326
+      },
+      "back": {
+        "count": 0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "side": {
+        "count": 26,
+        "mean": 0.1305145717691077,
+        "max": 0.3950035531656577
+      },
+      "side_back": {
+        "count": 0,
+        "mean": 0.0,
+        "max": 0.0
+      }
+    },
+    "腰部粗细": {
+      "front": {
+        "count": 240,
+        "mean": 0.31103765377646686,
+        "max": 0.7627691728240213
+      },
+      "back": {
+        "count": 0,
+        "mean": 0.0,
+        "max": 0.0
+      },
+      "side": {
+        "count": 126,
+        "mean": 0.12359459366325878,
+        "max": 0.3470519061080123
+      },
+      "side_back": {
+        "count": 8,
+        "mean": 0.011602364162259501,
+        "max": 0.021774428382790423
+      }
+    },
+    "胯部粗细": {
+      "front": {
+        "count": 134,
+        "mean": 0.49182865322190733,
+        "max": 0.9723374019153831
+      },
+      "back": {
+        "count": 292,
+        "mean": 0.19904904979188393,
+        "max": 0.4030203626426857
+      },
+      "side": {
+        "count": 38,
+        "mean": 0.0649545801601215,
+        "max": 0.19375931935058166
+      },
+      "side_back": {
+        "count": 76,
+        "mean": 0.12123926032123301,
+        "max": 0.3523434592680179
+      }
+    }
+  },
+  "failures": []
+}

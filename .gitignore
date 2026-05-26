@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.blend
+*.blend1
+*.blend2
+*.tmp
+.tmp/
+dist/stage_*/
+dist/*.zip
+test_results/*.tmp
+addon/metahuman_blender_pipeline/bundled_metahuman/
+.DS_Store
+Thumbs.db

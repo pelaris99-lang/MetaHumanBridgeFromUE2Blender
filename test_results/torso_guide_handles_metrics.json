@@ -1,0 +1,37 @@
+{
+  "version": [
+    0,
+    1,
+    40
+  ],
+  "created": {
+    "created": 12,
+    "updated": 0,
+    "total": 12,
+    "labels": 12
+  },
+  "guide_name": "GUIDE_MH_chest_l_front",
+  "glute_guide_name": "GUIDE_MH_pelvis_l_back_glute",
+  "move_error": 1.528856233776226e-05,
+  "mirror_error": 1.528856233776226e-05,
+  "reset_error": 0.0,
+  "visibility": {
+    "hide": {
+      "mode": "HIDE",
+      "guides": 12,
+      "labels": 12
+    },
+    "hidden_count": 12,
+    "hidden_label_count": 12,
+    "show": {
+      "mode": "SHOW",
+      "guides": 12,
+      "labels": 12
+    },
+    "visible_count": 12,
+    "visible_label_count": 12
+  },
+  "guide_count": 12,
+  "label_count": 12,
+  "failures": []
+}
