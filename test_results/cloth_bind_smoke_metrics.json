@@ -1,0 +1,53 @@
+{
+  "version": [
+    0,
+    1,
+    50
+  ],
+  "result": {
+    "source_body": "MH_Body_LOD0",
+    "armature": "MH_Body_Root",
+    "targets": [
+      {
+        "object": "SmokeVest",
+        "removed_groups": 0,
+        "created_groups": 2,
+        "transfer_applied": false,
+        "direct_weight_transfer": {
+          "assigned_vertices": 4,
+          "created_groups": 0,
+          "group_count": 2,
+          "samples_per_vertex": 4
+        },
+        "manual_transfer": {
+          "assigned_vertices": 4,
+          "created_groups": 0,
+          "group_count": 2,
+          "samples_per_vertex": 4
+        },
+        "removed_mapping_modifiers": [],
+        "normalized": true,
+        "armature_modifier": "MH_Cloth_Armature",
+        "removed_armature_modifiers": 1,
+        "detached_parent": true
+      }
+    ],
+    "count": 1,
+    "applied_count": 1,
+    "direct_weight_vertices": 4,
+    "detached_parent_count": 1,
+    "removed_armature_modifier_count": 1
+  },
+  "cloth_vertex_groups": [
+    "pelvis",
+    "spine_01"
+  ],
+  "cloth_weight_sums": {
+    "pelvis": 2.4000000953674316,
+    "spine_01": 1.600000023841858
+  },
+  "cloth_modifiers": [
+    "ARMATURE"
+  ],
+  "failures": []
+}

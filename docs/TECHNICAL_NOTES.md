@@ -1,5 +1,13 @@
 # Technical Notes
 
+## 2026-05-28 Clothing Binding And Rest Pose
+
+- `mharp.apply_pose_as_rest` now treats ControlRig as a driver layer over the hidden deform armature. It captures the constrained deform pose, temporarily clears ControlRig copy constraints, applies the pose as rest, restores constraints, and writes evaluated mesh coordinates back to mesh data so edit mode sees the new permanent pose.
+- `mharp.bind_selected_clothes` now writes body bone weights directly onto selected clothing meshes. It samples the current visible body with a four-nearest-vertex blend, creates matching bone vertex groups on the clothing mesh, normalizes the result, removes stale clothing parents/armatures, and leaves one `MH_Cloth_Armature` modifier.
+- `mharp.paint_cloth_weights_from_control` is a Weight Paint entry helper. The selected ControlRig handle chooses the active bone vertex group, while the selected clothing mesh becomes the active object in Weight Paint mode.
+- Legacy `MH_Cloth_Weight_Projection` Data Transfer modifiers are still recognized and cleaned up, but the primary binding path no longer depends on live Data Transfer.
+- The regression scripts for this slice are `analyze_pose_as_rest_smoke.py`, `analyze_cloth_bind_smoke.py`, and `analyze_weight_paint_from_control_smoke.py`.
+
 ## 2026-05-25 单位链路修复
 
 新测出的关键根因：

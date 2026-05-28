@@ -1,7 +1,7 @@
 bl_info = {
     "name": "MetaForge",
     "author": "Codex / Siyuan Ouyang",
-    "version": (0, 1, 40),
+    "version": (0, 1, 50),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar > MetaForge",
     "description": "Forge MetaHuman imports into Blender-ready materials, control rigs, and body-shape tools.",
@@ -21,6 +21,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty, StringProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from mathutils import Matrix, Vector
+from mathutils.kdtree import KDTree
 
 try:
     from bpy_extras import node_shader_utils
@@ -55,6 +56,23 @@ CONTROL_THICKNESS_LEVELS = {
 TORSO_HEIGHT_CONTROL_FOLLOW_ROOTS = ("clavicle_l", "clavicle_r")
 BUILTIN_METAHUMAN_RELATIVE_ROOT = Path("bundled_metahuman") / "OutPut"
 DEFAULT_INTERFACE_LANGUAGE = "ZH"
+TEXTURE_FILE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".tga", ".exr", ".bmp", ".dds")
+METAHUMAN_TEXTURE_SPECS = (
+    ("head", "MH_Head_Skin", "Head_Basecolor.png", "Head_Normal.png"),
+    ("body", "MH_Body_Skin", "Body_Basecolor.png", "Body_Normal.png"),
+    ("eye_left", "MH_Eye_Left", "Eyes_Color.png", "Eyes_Normal.png"),
+    ("eye_right", "MH_Eye_Right", "Eyes_Color.png", "Eyes_Normal.png"),
+    ("teeth", "MH_Teeth", "Teeth_Color.png", "Teeth_Normal.png"),
+    ("lashes", "MH_Eyelashes", "Eyelashes_Color.png", None),
+)
+METAHUMAN_EXPECTED_TEXTURES = tuple(
+    dict.fromkeys(
+        texture_name
+        for _key, _material_name, base_color, normal in METAHUMAN_TEXTURE_SPECS
+        for texture_name in (base_color, normal)
+        if texture_name
+    )
+)
 
 UI_TEXT = {
     "ZH": {
@@ -81,6 +99,10 @@ UI_TEXT = {
         "run_full_pipeline": "一键生成MetaForge",
         "scan": "扫描DCCExport",
         "import": "导入MetaHuman并接贴图",
+        "repair_textures": "修复MetaHuman贴图索引",
+        "bind_selected_clothes": "绑定选中衣服到身体",
+        "paint_cloth_weights": "用ControlRig刷衣服权重",
+        "apply_pose_as_rest": "应用当前姿势为Rest Pose",
         "build_rig": "生成专用ControlRig",
         "create_shapes": "应用体型并同步Rig",
         "sync_visuals": "刷新Rig外观（修复）",
@@ -132,6 +154,10 @@ UI_TEXT = {
         "run_full_pipeline": "Run MetaForge",
         "scan": "Scan DCCExport",
         "import": "Import MetaHuman + Materials",
+        "repair_textures": "Repair MetaHuman Texture Index",
+        "bind_selected_clothes": "Bind Selected Clothes to Body",
+        "paint_cloth_weights": "Paint Cloth Weights from ControlRig",
+        "apply_pose_as_rest": "Apply Current Pose as Rest",
         "build_rig": "Build ControlRig",
         "create_shapes": "Apply Body + Rig",
         "sync_visuals": "Refresh Rig Look (Repair)",
@@ -1062,6 +1088,233 @@ def make_materials(map_dir):
     }
 
 
+def path_identity(path):
+    try:
+        return str(Path(path).resolve()).lower()
+    except Exception:
+        return str(path).lower()
+
+
+def add_maps_dir(candidates, seen, path):
+    if not path:
+        return
+    try:
+        maps_dir = Path(path)
+    except Exception:
+        return
+    key = path_identity(maps_dir)
+    if key in seen:
+        return
+    seen.add(key)
+    candidates.append(maps_dir)
+
+
+def add_maps_from_dcc_export(candidates, seen, root, character=""):
+    if not root:
+        return
+    try:
+        root = Path(root)
+    except Exception:
+        return
+    if root.name.lower() == "maps":
+        add_maps_dir(candidates, seen, root)
+        return
+    if root.name.lower() != "dccexport":
+        add_maps_dir(candidates, seen, root / "Maps")
+        root = root / "DCCExport"
+    if not root.is_dir():
+        return
+    if character:
+        add_maps_dir(candidates, seen, root / character / "Maps")
+    try:
+        children = sorted(root.iterdir(), key=lambda item: item.name.lower())
+    except Exception:
+        return
+    for child in children:
+        if child.is_dir():
+            add_maps_dir(candidates, seen, child / "Maps")
+
+
+def metahuman_texture_search_candidates(settings, context):
+    candidates = []
+    seen = set()
+    character = (getattr(settings, "character_name", "") or "").strip()
+
+    try:
+        source = resolve_metahuman_source(settings)
+        add_maps_dir(candidates, seen, source.get("maps"))
+    except Exception:
+        pass
+
+    configured_root = path_from_blender(getattr(settings, "dcc_export_root", ""))
+    if configured_root:
+        add_maps_from_dcc_export(candidates, seen, configured_root, character)
+
+    scene = getattr(context, "scene", None)
+    if scene:
+        character_dir = scene.get("mharp_character_dir")
+        if character_dir:
+            add_maps_dir(candidates, seen, Path(character_dir) / "Maps")
+        dcc_export = scene.get("mharp_dcc_export")
+        if dcc_export:
+            add_maps_from_dcc_export(candidates, seen, dcc_export, character)
+
+    if bpy.data.filepath:
+        blend_dir = Path(bpy.data.filepath).parent
+        for root in (blend_dir, blend_dir / "OutPut", blend_dir.parent):
+            add_maps_from_dcc_export(candidates, seen, root, character)
+            add_maps_from_dcc_export(candidates, seen, root / "OutPut", character)
+
+    add_maps_from_dcc_export(candidates, seen, bundled_metahuman_dcc_export(), character)
+    return candidates
+
+
+def texture_dir_score(map_dir):
+    expected = {name.lower() for name in METAHUMAN_EXPECTED_TEXTURES}
+    found_expected = 0
+    image_count = 0
+    try:
+        files = list(Path(map_dir).iterdir())
+    except Exception:
+        return 0, 0
+    for path in files:
+        if not path.is_file() or path.suffix.lower() not in TEXTURE_FILE_EXTENSIONS:
+            continue
+        image_count += 1
+        if path.name.lower() in expected:
+            found_expected += 1
+    return found_expected, image_count
+
+
+def find_metahuman_maps_dir(settings, context):
+    best = None
+    for index, maps_dir in enumerate(metahuman_texture_search_candidates(settings, context)):
+        if not maps_dir.is_dir():
+            continue
+        found_expected, image_count = texture_dir_score(maps_dir)
+        if best is None or (found_expected, image_count, -index) > (best["found_expected"], best["image_count"], -best["index"]):
+            best = {
+                "maps_dir": maps_dir,
+                "found_expected": found_expected,
+                "image_count": image_count,
+                "index": index,
+            }
+    if best is None:
+        raise RuntimeError("找不到可用的 Maps 贴图目录")
+    if best["found_expected"] == 0:
+        raise RuntimeError(f"Maps目录里没有找到MetaForge预期贴图: {best['maps_dir']}")
+    best["expected_total"] = len(METAHUMAN_EXPECTED_TEXTURES)
+    return best
+
+
+def build_texture_file_index(map_dir):
+    texture_index = {}
+    for path in Path(map_dir).iterdir():
+        if path.is_file() and path.suffix.lower() in TEXTURE_FILE_EXTENSIONS:
+            texture_index.setdefault(path.name.lower(), path)
+    return texture_index
+
+
+def texture_lookup_names(value):
+    if not value:
+        return set()
+    raw = str(value).strip()
+    if not raw:
+        return set()
+    name = Path(raw).name or raw.replace("\\", "/").rsplit("/", 1)[-1]
+    names = {name.lower()}
+    if re.search(r"\.\d{3}$", name):
+        name = name[:-4]
+        names.add(name.lower())
+    if not Path(name).suffix:
+        for ext in TEXTURE_FILE_EXTENSIONS:
+            names.add(f"{name}{ext}".lower())
+    return names
+
+
+def image_texture_lookup_names(image):
+    names = set()
+    names.update(texture_lookup_names(getattr(image, "filepath", "")))
+    names.update(texture_lookup_names(getattr(image, "name", "")))
+    return names
+
+
+def is_data_texture(path):
+    stem = Path(path).stem.lower()
+    return any(token in stem for token in ("normal", "cavity", "roughness", "metallic", "mask", "opacity", "alpha", "specular", "ao"))
+
+
+def relink_existing_images(texture_index):
+    relinked = 0
+    reloaded = 0
+    for image in bpy.data.images:
+        replacement = None
+        for name in image_texture_lookup_names(image):
+            replacement = texture_index.get(name)
+            if replacement:
+                break
+        if not replacement:
+            continue
+        old_path = bpy.path.abspath(image.filepath) if image.filepath else ""
+        if path_identity(old_path) != path_identity(replacement):
+            image.filepath = str(replacement)
+            relinked += 1
+        try:
+            image.colorspace_settings.name = "Non-Color" if is_data_texture(replacement) else "sRGB"
+        except Exception:
+            pass
+        try:
+            image.reload()
+            reloaded += 1
+        except Exception:
+            pass
+    return {"relinked": relinked, "reloaded": reloaded}
+
+
+def metahuman_material_meshes():
+    return [
+        obj
+        for obj in bpy.data.objects
+        if obj.type == "MESH" and (obj.name.startswith("MH_Face") or obj.name.startswith("MH_Body"))
+    ]
+
+
+def repair_metahuman_texture_index(settings, context):
+    maps_info = find_metahuman_maps_dir(settings, context)
+    map_dir = maps_info["maps_dir"]
+    texture_index = build_texture_file_index(map_dir)
+    missing = [name for name in METAHUMAN_EXPECTED_TEXTURES if name.lower() not in texture_index]
+
+    image_result = relink_existing_images(texture_index)
+    materials = make_materials(map_dir)
+    meshes = metahuman_material_meshes()
+    before = {
+        (obj.name, index): slot.material.name if slot.material else ""
+        for obj in meshes
+        for index, slot in enumerate(obj.material_slots)
+    }
+    if meshes:
+        assign_metahuman_materials(meshes, materials)
+    changed_slots = sum(
+        1
+        for obj in meshes
+        for index, slot in enumerate(obj.material_slots)
+        if before.get((obj.name, index), "") != (slot.material.name if slot.material else "")
+    )
+    return {
+        "maps_dir": map_dir,
+        "found_expected": maps_info["found_expected"],
+        "expected_total": maps_info["expected_total"],
+        "image_count": maps_info["image_count"],
+        "missing": missing,
+        "relinked_images": image_result["relinked"],
+        "reloaded_images": image_result["reloaded"],
+        "materials": len(materials),
+        "meshes": len(meshes),
+        "changed_slots": changed_slots,
+    }
+
+
 def assign_metahuman_materials(meshes, materials):
     face_slot_materials = {
         0: "head",
@@ -1694,10 +1947,13 @@ def create_global_control(armature, collection, material):
 
 
 def clear_control_constraints(armature):
+    removed = 0
     for pose_bone in armature.pose.bones:
         for constraint in list(pose_bone.constraints):
             if constraint.name in {COPY_LOCATION_NAME, COPY_ROTATION_NAME}:
                 pose_bone.constraints.remove(constraint)
+                removed += 1
+    return removed
 
 
 def add_control_constraints(armature, controls):
@@ -3452,6 +3708,703 @@ def create_advanced_baked_mesh_copy(source_obj, collection, tag, dashboard, arma
     return new_obj
 
 
+def ensure_object_mode():
+    try:
+        if bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+
+
+def cloth_binding_targets(context, source_body):
+    targets = []
+    for obj in context.selected_objects:
+        if obj.type != "MESH" or obj == source_body:
+            continue
+        if obj.name.startswith(("MH_Body", "MH_Face", CONTROL_PREFIX, TORSO_GUIDE_PREFIX, TORSO_GUIDE_LABEL_PREFIX)):
+            continue
+        if obj.get("mharp_is_control_rig") or obj.get("mharp_baked_static_copy") or obj.get("mharp_advanced_baked_mesh"):
+            continue
+        targets.append(obj)
+    return targets
+
+
+def remove_source_named_vertex_groups(source_obj, target_obj):
+    source_names = {group.name for group in source_obj.vertex_groups}
+    removed = 0
+    for group in list(target_obj.vertex_groups):
+        if group.name in source_names:
+            target_obj.vertex_groups.remove(group)
+            removed += 1
+    created = 0
+    for group in source_obj.vertex_groups:
+        if target_obj.vertex_groups.get(group.name) is None:
+            target_obj.vertex_groups.new(name=group.name)
+            created += 1
+    return {"removed": removed, "created": created}
+
+
+def set_modifier_enum(modifier, property_name, values):
+    for value in values:
+        try:
+            setattr(modifier, property_name, value)
+            return value
+        except Exception:
+            continue
+    return None
+
+
+def configure_weight_transfer_modifier(modifier, source_body):
+    modifier.object = source_body
+    modifier.use_vert_data = True
+    modifier.use_edge_data = False
+    modifier.use_loop_data = False
+    modifier.use_poly_data = False
+    modifier.data_types_verts = {"VGROUP_WEIGHTS"}
+    set_modifier_enum(modifier, "vert_mapping", ("POLYINTERP_NEAREST", "POLY_NEAREST", "NEAREST"))
+    set_modifier_enum(modifier, "layers_vgroup_select_src", ("ALL", "BONE_DEFORM"))
+    set_modifier_enum(modifier, "layers_vgroup_select_dst", ("NAME", "INDEX"))
+    set_modifier_enum(modifier, "mix_mode", ("REPLACE",))
+    modifier.mix_factor = 1.0
+    if hasattr(modifier, "use_object_transform"):
+        modifier.use_object_transform = True
+    if hasattr(modifier, "use_max_distance"):
+        modifier.use_max_distance = False
+
+
+def move_modifier_before_armatures(target_obj, modifier):
+    try:
+        modifier_index = target_obj.modifiers.find(modifier.name)
+        armature_indexes = [
+            index
+            for index, item in enumerate(target_obj.modifiers)
+            if item.type == "ARMATURE" and item.name != modifier.name
+        ]
+        if modifier_index >= 0 and armature_indexes and modifier_index > min(armature_indexes):
+            target_obj.modifiers.move(modifier_index, min(armature_indexes))
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def apply_modifier_on_object(context, obj, modifier_name):
+    selected = list(context.selected_objects)
+    active = context.view_layer.objects.active
+    ensure_object_mode()
+    try:
+        reveal_object_and_collections(obj)
+        obj.hide_select = False
+        obj.hide_viewport = False
+        try:
+            obj.hide_set(False)
+        except Exception:
+            pass
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        context.view_layer.update()
+        result = bpy.ops.object.modifier_apply(modifier=modifier_name)
+        return "FINISHED" in result
+    except Exception:
+        print(traceback.format_exc())
+        return False
+    finally:
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+            for item in selected:
+                if item.name in bpy.data.objects:
+                    item.select_set(True)
+            if active and active.name in bpy.data.objects:
+                context.view_layer.objects.active = active
+        except Exception:
+            pass
+
+
+def normalize_vertex_groups_on_object(context, obj):
+    selected = list(context.selected_objects)
+    active = context.view_layer.objects.active
+    ensure_object_mode()
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        result = bpy.ops.object.vertex_group_normalize_all(lock_active=False)
+        return "FINISHED" in result
+    except Exception:
+        return False
+    finally:
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+            for item in selected:
+                if item.name in bpy.data.objects:
+                    item.select_set(True)
+            if active and active.name in bpy.data.objects:
+                context.view_layer.objects.active = active
+        except Exception:
+            pass
+
+
+def body_deform_group_names(source_body):
+    if not source_body or source_body.type != "MESH":
+        return []
+    return [group.name for group in source_body.vertex_groups]
+
+
+def vertex_group_total_weight(obj, group_name):
+    group = obj.vertex_groups.get(group_name) if obj and obj.type == "MESH" else None
+    if group is None:
+        return 0.0
+    total = 0.0
+    for vertex in obj.data.vertices:
+        for assignment in vertex.groups:
+            if assignment.group == group.index:
+                total += float(assignment.weight)
+                break
+    return total
+
+
+def has_nonzero_weights(obj, group_names, epsilon=1e-6):
+    return any(vertex_group_total_weight(obj, name) > epsilon for name in group_names)
+
+
+def evaluated_vertex_world_positions(obj):
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(depsgraph)
+    evaluated_mesh = evaluated.to_mesh()
+    try:
+        if len(evaluated_mesh.vertices) == len(obj.data.vertices):
+            return [evaluated.matrix_world @ vertex.co for vertex in evaluated_mesh.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+    return [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+
+
+def source_vertex_weight_map(source_body, vertex_index, group_names):
+    weights = {}
+    vertex = source_body.data.vertices[vertex_index]
+    allowed = set(group_names)
+    for assignment in vertex.groups:
+        group = source_body.vertex_groups[assignment.group]
+        if group.name in allowed and assignment.weight > 1e-6:
+            weights[group.name] = float(assignment.weight)
+    return weights
+
+
+def blended_source_weights(source_body, nearest_items, group_names):
+    if not nearest_items:
+        return {}
+    blended = {}
+    total_factor = 0.0
+    for _position, source_index, distance in nearest_items:
+        factor = 1.0 / max(float(distance), 1e-5)
+        total_factor += factor
+        for group_name, weight in source_vertex_weight_map(source_body, source_index, group_names).items():
+            blended[group_name] = blended.get(group_name, 0.0) + weight * factor
+    if total_factor <= 1e-8:
+        return {}
+    total_weight = 0.0
+    for group_name in list(blended.keys()):
+        value = blended[group_name] / total_factor
+        if value <= 1e-6:
+            del blended[group_name]
+            continue
+        blended[group_name] = value
+        total_weight += value
+    if total_weight <= 1e-8:
+        return {}
+    return {group_name: weight / total_weight for group_name, weight in blended.items()}
+
+
+def clear_target_group_weights(target_obj, group_names):
+    indices = [vertex.index for vertex in target_obj.data.vertices]
+    if not indices:
+        return
+    for name in group_names:
+        group = target_obj.vertex_groups.get(name)
+        if group is None:
+            continue
+        try:
+            group.remove(indices)
+        except Exception:
+            pass
+
+
+def transfer_body_weights_to_cloth(source_body, target_obj, samples_per_vertex=4):
+    group_names = body_deform_group_names(source_body)
+    if not group_names:
+        return {"assigned_vertices": 0, "created_groups": 0, "group_count": 0, "samples_per_vertex": 0}
+    created = 0
+    for name in group_names:
+        if target_obj.vertex_groups.get(name) is None:
+            target_obj.vertex_groups.new(name=name)
+            created += 1
+
+    source_positions = evaluated_vertex_world_positions(source_body)
+    target_positions = evaluated_vertex_world_positions(target_obj)
+    if not source_positions or not target_positions:
+        return {"assigned_vertices": 0, "created_groups": created, "group_count": len(group_names), "samples_per_vertex": 0}
+
+    tree = KDTree(len(source_positions))
+    for index, position in enumerate(source_positions):
+        tree.insert(position, index)
+    tree.balance()
+
+    clear_target_group_weights(target_obj, group_names)
+    assigned_vertices = 0
+    sample_count = max(1, min(int(samples_per_vertex or 1), len(source_positions)))
+    for vertex_index, position in enumerate(target_positions):
+        weights = blended_source_weights(source_body, tree.find_n(position, sample_count), group_names)
+        if not weights:
+            continue
+        assigned_vertices += 1
+        for group_name, weight in weights.items():
+            target_obj.vertex_groups[group_name].add([vertex_index], weight, "REPLACE")
+    target_obj.data.update()
+    target_obj["mharp_cloth_weights_baked_from_body"] = True
+    target_obj["mharp_cloth_weights_baked_at"] = timestamp()
+    return {
+        "assigned_vertices": assigned_vertices,
+        "created_groups": created,
+        "group_count": len(group_names),
+        "samples_per_vertex": sample_count,
+    }
+
+
+def modifier_targets_object(modifier, target_obj):
+    for attribute in ("object", "target"):
+        if hasattr(modifier, attribute) and getattr(modifier, attribute) == target_obj:
+            return True
+    return False
+
+
+def live_weight_mapping_modifiers(target_obj, source_body):
+    modifiers = []
+    for modifier in target_obj.modifiers:
+        if modifier.type != "DATA_TRANSFER":
+            continue
+        if modifier.name.startswith("MH_Cloth_Weight_Projection") or modifier_targets_object(modifier, source_body):
+            modifiers.append(modifier)
+    return modifiers
+
+
+def remove_live_weight_mapping_modifiers(target_obj, source_body):
+    removed = []
+    for modifier in list(live_weight_mapping_modifiers(target_obj, source_body)):
+        removed.append(modifier.name)
+        target_obj.modifiers.remove(modifier)
+    return removed
+
+
+def bake_cloth_weights_for_paint(context, source_body, target_obj, bone_name):
+    if not source_body or source_body.type != "MESH":
+        return {"baked": False, "reason": "missing_source_body"}
+    group_names = body_deform_group_names(source_body)
+    if not group_names:
+        return {"baked": False, "reason": "source_body_has_no_groups"}
+
+    live_modifiers = [modifier.name for modifier in live_weight_mapping_modifiers(target_obj, source_body)]
+    applied_modifiers = []
+    for modifier_name in list(live_modifiers):
+        if target_obj.modifiers.get(modifier_name) and apply_modifier_on_object(context, target_obj, modifier_name):
+            applied_modifiers.append(modifier_name)
+
+    needs_manual_transfer = (
+        not target_obj.get("mharp_cloth_weights_baked_from_body")
+        or not has_nonzero_weights(target_obj, group_names)
+    )
+    manual_transfer = {"assigned_vertices": 0, "created_groups": 0, "group_count": len(group_names)}
+    if needs_manual_transfer:
+        manual_transfer = transfer_body_weights_to_cloth(source_body, target_obj)
+
+    removed_modifiers = remove_live_weight_mapping_modifiers(target_obj, source_body)
+    normalized = normalize_vertex_groups_on_object(context, target_obj)
+    active_total = vertex_group_total_weight(target_obj, bone_name)
+    return {
+        "baked": bool(needs_manual_transfer or applied_modifiers or removed_modifiers),
+        "manual_transfer": manual_transfer,
+        "applied_modifiers": applied_modifiers,
+        "removed_modifiers": removed_modifiers,
+        "normalized": normalized,
+        "active_group_weight": active_total,
+    }
+
+
+def ensure_cloth_armature_modifier(target_obj, armature_obj):
+    removed = 0
+    modifier = None
+    for old_modifier in list(target_obj.modifiers):
+        if old_modifier.type != "ARMATURE":
+            continue
+        if old_modifier.object == armature_obj and modifier is None:
+            modifier = old_modifier
+            modifier.name = "MH_Cloth_Armature"
+            continue
+        target_obj.modifiers.remove(old_modifier)
+        removed += 1
+    if modifier is None:
+        modifier = target_obj.modifiers.new("MH_Cloth_Armature", "ARMATURE")
+    modifier.object = armature_obj
+    modifier.use_vertex_groups = True
+    return {"modifier": modifier, "removed": removed}
+
+
+def body_driver_armature(source_body, settings):
+    for modifier in source_body.modifiers:
+        if modifier.type == "ARMATURE" and modifier.object and modifier.object.type == "ARMATURE":
+            return modifier.object
+    return get_armature(getattr(settings, "armature_name", "MH_Body_Root"))
+
+
+def detach_stale_cloth_parent(target_obj, armature_obj):
+    if target_obj.parent != armature_obj:
+        return False
+    if not target_obj.get("mharp_cloth_bound_to_body"):
+        return False
+    detach_keep_world(target_obj)
+    return True
+
+
+def bind_cloth_to_body(context, source_body, armature_obj, target_obj):
+    detached_parent = detach_stale_cloth_parent(target_obj, armature_obj)
+    group_result = remove_source_named_vertex_groups(source_body, target_obj)
+    removed_mapping_modifiers = []
+    removed_mapping_modifiers.extend(remove_live_weight_mapping_modifiers(target_obj, source_body))
+    direct_transfer = transfer_body_weights_to_cloth(source_body, target_obj)
+    removed_mapping_modifiers.extend(remove_live_weight_mapping_modifiers(target_obj, source_body))
+    normalized = normalize_vertex_groups_on_object(context, target_obj)
+    armature_result = ensure_cloth_armature_modifier(target_obj, armature_obj)
+    armature_modifier = armature_result["modifier"]
+    target_obj["mharp_cloth_bound_to_body"] = True
+    target_obj["mharp_cloth_source_body"] = source_body.name
+    target_obj["mharp_cloth_armature"] = armature_obj.name
+    target_obj["mharp_cloth_weight_transfer_applied"] = False
+    target_obj["mharp_cloth_direct_weights_applied"] = bool(direct_transfer["assigned_vertices"])
+    target_obj["mharp_cloth_parent_policy"] = "modifier_only"
+    return {
+        "object": target_obj.name,
+        "removed_groups": group_result["removed"],
+        "created_groups": group_result["created"],
+        "transfer_applied": False,
+        "direct_weight_transfer": direct_transfer,
+        "manual_transfer": direct_transfer,
+        "removed_mapping_modifiers": removed_mapping_modifiers,
+        "normalized": normalized,
+        "armature_modifier": armature_modifier.name,
+        "removed_armature_modifiers": armature_result["removed"],
+        "detached_parent": detached_parent,
+    }
+
+
+def bind_selected_clothes_to_body(context, settings):
+    source_body = find_body_mesh(settings)
+    if not source_body or source_body.type != "MESH":
+        raise RuntimeError("找不到可用于投射权重的身体网格")
+    if not source_body.vertex_groups:
+        raise RuntimeError(f"身体网格没有可投射的顶点组: {source_body.name}")
+    armature = body_driver_armature(source_body, settings)
+    if not armature:
+        raise RuntimeError("找不到身体骨架")
+    targets = cloth_binding_targets(context, source_body)
+    if not targets:
+        raise RuntimeError("请先选中要绑定的衣服/装备网格")
+    results = [bind_cloth_to_body(context, source_body, armature, target) for target in targets]
+    return {
+        "source_body": source_body.name,
+        "armature": armature.name,
+        "targets": results,
+        "count": len(results),
+        "applied_count": sum(1 for item in results if item["direct_weight_transfer"]["assigned_vertices"] > 0),
+        "direct_weight_vertices": sum(item["direct_weight_transfer"]["assigned_vertices"] for item in results),
+        "detached_parent_count": sum(1 for item in results if item["detached_parent"]),
+        "removed_armature_modifier_count": sum(item["removed_armature_modifiers"] for item in results),
+    }
+
+
+def control_target_bone_name(obj):
+    if not obj:
+        return ""
+    return str(obj.get("mharp_target_bone") or "")
+
+
+def selected_control_for_weight_paint(context):
+    active = context.view_layer.objects.active
+    if control_target_bone_name(active):
+        return active
+    controls = [obj for obj in context.selected_objects if control_target_bone_name(obj)]
+    if len(controls) == 1:
+        return controls[0]
+    if not controls:
+        raise RuntimeError("请同时选中衣服网格和一个ControlRig手柄")
+    raise RuntimeError("请只选中一个ControlRig手柄作为要修的骨骼")
+
+
+def is_cloth_weight_paint_mesh(obj, source_body=None):
+    if not obj or obj.type != "MESH" or obj == source_body:
+        return False
+    if obj.name.startswith(("MH_Body", "MH_Face", CONTROL_PREFIX, TORSO_GUIDE_PREFIX, TORSO_GUIDE_LABEL_PREFIX)):
+        return False
+    if obj.get("mharp_is_control_rig") or obj.get("mharp_baked_static_copy") or obj.get("mharp_advanced_baked_mesh"):
+        return False
+    return True
+
+
+def selected_cloth_for_weight_paint(context, source_body):
+    active = context.view_layer.objects.active
+    if is_cloth_weight_paint_mesh(active, source_body):
+        return active
+    meshes = [obj for obj in context.selected_objects if is_cloth_weight_paint_mesh(obj, source_body)]
+    if len(meshes) == 1:
+        return meshes[0]
+    if not meshes:
+        raise RuntimeError("请同时选中要修的衣服网格")
+    raise RuntimeError("请只选中一个要进入权重绘制的衣服网格")
+
+
+def enter_cloth_weight_paint_from_control(context, settings):
+    source_body = find_body_mesh(settings)
+    control = selected_control_for_weight_paint(context)
+    bone_name = control_target_bone_name(control)
+    if not bone_name:
+        raise RuntimeError("选中的ControlRig手柄没有对应骨骼")
+    target = selected_cloth_for_weight_paint(context, source_body)
+    bake_result = bake_cloth_weights_for_paint(context, source_body, target, bone_name)
+    group = target.vertex_groups.get(bone_name)
+    if group is None:
+        group = target.vertex_groups.new(name=bone_name)
+    target.vertex_groups.active_index = group.index
+
+    armature = body_driver_armature(source_body, settings) if source_body and source_body.type == "MESH" else None
+    if armature:
+        ensure_cloth_armature_modifier(target, armature)
+
+    ensure_object_mode()
+    reveal_object_and_collections(target)
+    reveal_object_and_collections(control)
+    target.hide_select = False
+    control.hide_select = False
+    bpy.ops.object.select_all(action="DESELECT")
+    target.select_set(True)
+    control.select_set(True)
+    context.view_layer.objects.active = target
+    context.view_layer.update()
+    if context.view_layer.objects.active != target:
+        raise RuntimeError(f"无法把衣服设为活动对象: {target.name}")
+    mode_result = bpy.ops.object.mode_set(mode="WEIGHT_PAINT")
+    if "FINISHED" not in mode_result:
+        raise RuntimeError(f"Blender没有进入Weight Paint: {mode_result}")
+    target["mharp_weight_paint_bone"] = bone_name
+    target["mharp_weight_paint_control"] = control.name
+    return {
+        "object": target.name,
+        "control": control.name,
+        "bone": bone_name,
+        "group": group.name,
+        "armature": armature.name if armature else "",
+        "bake": bake_result,
+    }
+
+
+def object_in_active_view_layer(context, obj):
+    return any(item == obj for item in context.view_layer.objects)
+
+
+def activate_object_for_mode(context, obj):
+    reveal_object_and_collections(obj)
+    obj.hide_select = False
+    obj.hide_viewport = False
+    obj.hide_render = False
+    try:
+        obj.hide_set(False)
+    except Exception:
+        pass
+    if obj.type == "ARMATURE":
+        try:
+            for bone in obj.data.bones:
+                bone.hide = False
+                bone.hide_select = False
+        except Exception:
+            pass
+    context.view_layer.update()
+    if not object_in_active_view_layer(context, obj):
+        raise RuntimeError(f"当前View Layer里找不到可激活对象: {obj.name}")
+    try:
+        if context.view_layer.objects.active and bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode="OBJECT")
+    except Exception:
+        pass
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    context.view_layer.update()
+    if context.view_layer.objects.active != obj:
+        raise RuntimeError(f"无法把对象设为活动对象: {obj.name}")
+    return obj
+
+
+def control_map_for_armature(armature):
+    controls = {}
+    if not armature or not armature.pose:
+        return controls
+    for control in control_objects():
+        bone_name = str(control.get("mharp_target_bone") or "")
+        if bone_name and bone_name in armature.pose.bones:
+            controls[bone_name] = control
+    return controls
+
+
+def capture_pose_bone_matrices(armature):
+    bpy.context.view_layer.update()
+    return {pose_bone.name: pose_bone.matrix.copy() for pose_bone in armature.pose.bones}
+
+
+def pose_bone_depth(pose_bone):
+    depth = 0
+    bone = pose_bone.bone
+    while bone.parent:
+        depth += 1
+        bone = bone.parent
+    return depth
+
+
+def set_pose_bone_matrices(armature, matrices):
+    for pose_bone in sorted(armature.pose.bones, key=pose_bone_depth):
+        matrix = matrices.get(pose_bone.name)
+        if matrix is not None:
+            pose_bone.matrix = matrix
+    bpy.context.view_layer.update()
+
+
+def armature_driven_meshes(armature, source_body=None):
+    meshes = []
+    seen = set()
+    if source_body and source_body.type == "MESH":
+        meshes.append(source_body)
+        seen.add(source_body.name)
+    for obj in bpy.data.objects:
+        if obj.type != "MESH" or obj.name in seen:
+            continue
+        for modifier in obj.modifiers:
+            if modifier.type == "ARMATURE" and modifier.object == armature and modifier.show_viewport:
+                meshes.append(obj)
+                seen.add(obj.name)
+                break
+    return meshes
+
+
+def capture_evaluated_mesh_coordinates(mesh_obj):
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    evaluated = mesh_obj.evaluated_get(depsgraph)
+    evaluated_mesh = evaluated.to_mesh()
+    try:
+        if len(evaluated_mesh.vertices) != len(mesh_obj.data.vertices):
+            return None
+        to_original_local = mesh_obj.matrix_world.inverted() @ evaluated.matrix_world
+        return [to_original_local @ vertex.co for vertex in evaluated_mesh.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def capture_visual_mesh_states(meshes):
+    states = {}
+    bpy.context.view_layer.update()
+    for mesh_obj in meshes:
+        coords = capture_evaluated_mesh_coordinates(mesh_obj)
+        if coords is not None:
+            states[mesh_obj.name] = coords
+    return states
+
+
+def write_mesh_coordinates(mesh_obj, coords):
+    if len(coords) != len(mesh_obj.data.vertices):
+        return False
+    shape_keys = mesh_obj.data.shape_keys
+    if shape_keys and shape_keys.key_blocks:
+        for key_block in shape_keys.key_blocks:
+            if len(key_block.data) != len(coords):
+                return False
+            for point, coord in zip(key_block.data, coords):
+                point.co = coord
+    else:
+        for vertex, coord in zip(mesh_obj.data.vertices, coords):
+            vertex.co = coord
+    mesh_obj.data.update()
+    return True
+
+
+def restore_visual_mesh_states(states):
+    restored = 0
+    skipped = []
+    for name, coords in states.items():
+        mesh_obj = bpy.data.objects.get(name)
+        if mesh_obj and mesh_obj.type == "MESH" and write_mesh_coordinates(mesh_obj, coords):
+            restored += 1
+        else:
+            skipped.append(name)
+    bpy.context.view_layer.update()
+    return restored, skipped
+
+
+def apply_current_body_pose_as_rest(context, settings):
+    source_body = find_body_mesh(settings)
+    armature = body_driver_armature(source_body, settings) if source_body else get_armature(getattr(settings, "armature_name", "MH_Body_Root"))
+    if not armature or armature.type != "ARMATURE":
+        raise RuntimeError("找不到可应用Rest Pose的身体骨架")
+
+    selected = list(context.selected_objects)
+    active = context.view_layer.objects.active
+    previous_mode = context.object.mode if context.object else "OBJECT"
+    if getattr(settings, "make_backup", False):
+        make_backup_if_saved()
+    context.view_layer.update()
+    try:
+        activate_object_for_mode(context, armature)
+        bpy.ops.object.mode_set(mode="POSE")
+        controls = control_map_for_armature(armature)
+        driven_meshes = armature_driven_meshes(armature, source_body)
+        visual_mesh_states = capture_visual_mesh_states(driven_meshes)
+        current_pose_matrices = capture_pose_bone_matrices(armature)
+        removed_constraints = clear_control_constraints(armature)
+        set_pose_bone_matrices(armature, current_pose_matrices)
+        result = bpy.ops.pose.armature_apply(selected=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        if "FINISHED" not in result:
+            raise RuntimeError(f"Blender没有完成Apply Pose as Rest: {result}")
+        baked_mesh_count, skipped_meshes = restore_visual_mesh_states(visual_mesh_states)
+        restored_constraints = add_control_constraints(armature, controls) if controls else 0
+        context.view_layer.update()
+        armature["mharp_pose_applied_as_rest_at"] = timestamp()
+        if source_body:
+            source_body["mharp_pose_applied_as_rest_armature"] = armature.name
+        result = {
+            "armature": armature.name,
+            "body": source_body.name if source_body else "",
+            "timestamp": armature["mharp_pose_applied_as_rest_at"],
+            "baked_control_constraints": removed_constraints,
+            "restored_control_constraints": restored_constraints,
+            "control_count": len(controls),
+            "baked_mesh_count": baked_mesh_count,
+            "skipped_meshes": skipped_meshes,
+        }
+        context.scene["mharp_pose_applied_as_rest"] = result
+        if getattr(settings, "hide_source_armature", False):
+            hide_deform_rigs(armature, getattr(settings, "hide_non_lod0", True))
+        return result
+    finally:
+        try:
+            if context.view_layer.objects.active and bpy.ops.object.mode_set.poll():
+                bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in selected:
+                if obj.name in bpy.data.objects:
+                    obj.select_set(True)
+            if active and active.name in bpy.data.objects:
+                context.view_layer.objects.active = active
+        except Exception:
+            pass
+
+
 def proportion_shape_keys_missing(mesh_obj):
     if not mesh_obj or mesh_obj.type != "MESH" or mesh_obj.data.shape_keys is None:
         return True
@@ -3872,6 +4825,119 @@ class MHARP_OT_import_metahuman(Operator):
             return {"FINISHED"}
         except Exception as exc:
             settings.status = f"导入失败: {exc!r}"
+            print(traceback.format_exc())
+            self.report({"ERROR"}, settings.status)
+            return {"CANCELLED"}
+
+
+class MHARP_OT_repair_texture_index(Operator):
+    bl_idname = "mharp.repair_texture_index"
+    bl_label = "修复MetaHuman贴图索引"
+    bl_description = "只重连当前Blend里的Image/材质贴图引用；不会保存Blend，也不会复制、改名、生成或删除贴图文件。"
+
+    def execute(self, context):
+        settings = context.scene.mharp_settings
+        try:
+            result = repair_metahuman_texture_index(settings, context)
+            if ui_language(settings) == "EN":
+                settings.status = (
+                    f"Texture index repaired: {result['found_expected']}/{result['expected_total']} expected maps, "
+                    f"{result['relinked_images']} image paths, {result['changed_slots']} material slots."
+                )
+                if result["missing"]:
+                    settings.status += f" Missing {len(result['missing'])} expected maps."
+            else:
+                settings.status = (
+                    f"贴图索引已修复：预期贴图 {result['found_expected']}/{result['expected_total']}，"
+                    f"Image路径 {result['relinked_images']} 个，材质槽 {result['changed_slots']} 个。"
+                )
+                if result["missing"]:
+                    settings.status += f" 仍缺少 {len(result['missing'])} 个预期贴图。"
+            self.report({"WARNING" if result["missing"] else "INFO"}, settings.status)
+            return {"FINISHED"}
+        except Exception as exc:
+            settings.status = f"贴图索引修复失败: {exc}"
+            print(traceback.format_exc())
+            self.report({"ERROR"}, settings.status)
+            return {"CANCELLED"}
+
+
+class MHARP_OT_bind_selected_clothes(Operator):
+    bl_idname = "mharp.bind_selected_clothes"
+    bl_label = "绑定选中衣服到身体"
+    bl_description = "把当前选中的衣服/装备网格绑定到MetaHuman身体骨架：从身体LOD0投射顶点组权重，并添加Armature修改器。"
+
+    def execute(self, context):
+        settings = context.scene.mharp_settings
+        try:
+            result = bind_selected_clothes_to_body(context, settings)
+            if ui_language(settings) == "EN":
+                settings.status = (
+                    f"Bound {result['count']} selected mesh(es) to {result['armature']}: "
+                    f"weights applied {result['applied_count']}, old armatures removed {result['removed_armature_modifier_count']}, "
+                    f"old parents detached {result['detached_parent_count']}."
+                )
+            else:
+                settings.status = (
+                    f"已绑定 {result['count']} 个选中网格到 {result['armature']}："
+                    f"权重投射 {result['applied_count']} 个，移除旧Armature {result['removed_armature_modifier_count']} 个，"
+                    f"解除旧父级 {result['detached_parent_count']} 个。"
+                )
+            self.report({"INFO"}, settings.status)
+            return {"FINISHED"}
+        except Exception as exc:
+            settings.status = f"衣服绑定失败: {exc}"
+            print(traceback.format_exc())
+            self.report({"ERROR"}, settings.status)
+            return {"CANCELLED"}
+
+
+class MHARP_OT_paint_cloth_weights_from_control(Operator):
+    bl_idname = "mharp.paint_cloth_weights_from_control"
+    bl_label = "用ControlRig刷衣服权重"
+    bl_description = "选中一个衣服网格和一个ControlRig手柄后，自动进入衣服的Weight Paint，并把手柄对应骨骼设为当前顶点组。"
+
+    def execute(self, context):
+        settings = context.scene.mharp_settings
+        try:
+            result = enter_cloth_weight_paint_from_control(context, settings)
+            bake = result.get("bake", {})
+            if ui_language(settings) == "EN":
+                settings.status = (
+                    f"Weight Paint ready on {result['object']}: active group {result['group']} "
+                    f"from {result['control']}; baked {bake.get('manual_transfer', {}).get('assigned_vertices', 0)} vertices."
+                )
+            else:
+                settings.status = (
+                    f"已进入 {result['object']} 的权重绘制：当前顶点组 {result['group']}，"
+                    f"来自 {result['control']}；固化权重顶点 {bake.get('manual_transfer', {}).get('assigned_vertices', 0)} 个。"
+                )
+            self.report({"INFO"}, settings.status)
+            return {"FINISHED"}
+        except Exception as exc:
+            settings.status = f"进入衣服权重绘制失败: {exc}"
+            print(traceback.format_exc())
+            self.report({"ERROR"}, settings.status)
+            return {"CANCELLED"}
+
+
+class MHARP_OT_apply_pose_as_rest(Operator):
+    bl_idname = "mharp.apply_pose_as_rest"
+    bl_label = "应用当前姿势为Rest Pose"
+    bl_description = "把身体骨架当前姿势应用为新的Rest Pose；会修改当前角色骨架，建议保持“操作前备份当前blend”开启。"
+
+    def execute(self, context):
+        settings = context.scene.mharp_settings
+        try:
+            result = apply_current_body_pose_as_rest(context, settings)
+            if ui_language(settings) == "EN":
+                settings.status = f"Applied current pose as rest pose: {result['armature']}"
+            else:
+                settings.status = f"已应用当前姿势为Rest Pose：{result['armature']}"
+            self.report({"INFO"}, settings.status)
+            return {"FINISHED"}
+        except Exception as exc:
+            settings.status = f"应用当前姿势为Rest Pose失败: {exc}"
             print(traceback.format_exc())
             self.report({"ERROR"}, settings.status)
             return {"CANCELLED"}
@@ -4421,7 +5487,11 @@ class MHARP_PT_panel(Panel):
         layout.separator()
         layout.operator("mharp.scan_files", text=ui_text(settings, "scan"), icon="VIEWZOOM")
         layout.operator("mharp.import_metahuman", text=ui_text(settings, "import"), icon="IMPORT")
+        layout.operator("mharp.repair_texture_index", text=ui_text(settings, "repair_textures"), icon="FILE_REFRESH")
         layout.operator("mharp.build_control_rig", text=ui_text(settings, "build_rig"), icon="ARMATURE_DATA")
+        layout.operator("mharp.apply_pose_as_rest", text=ui_text(settings, "apply_pose_as_rest"), icon="ARMATURE_DATA")
+        layout.operator("mharp.bind_selected_clothes", text=ui_text(settings, "bind_selected_clothes"), icon="MOD_ARMATURE")
+        layout.operator("mharp.paint_cloth_weights_from_control", text=ui_text(settings, "paint_cloth_weights"), icon="WPAINT_HLT")
         layout.separator()
         layout.label(text=ui_text(settings, "body_workflow"), icon="SHAPEKEY_DATA")
         layout.operator("mharp.create_proportion_shapes", text=ui_text(settings, "apply_rebuild"), icon="FILE_REFRESH")
@@ -4537,6 +5607,10 @@ classes = (
     MHARP_OT_use_builtin_metahuman,
     MHARP_OT_scan,
     MHARP_OT_import_metahuman,
+    MHARP_OT_repair_texture_index,
+    MHARP_OT_bind_selected_clothes,
+    MHARP_OT_paint_cloth_weights_from_control,
+    MHARP_OT_apply_pose_as_rest,
     MHARP_OT_build_control_rig,
     MHARP_OT_mirror_left_to_right,
     MHARP_OT_mirror_right_to_left,

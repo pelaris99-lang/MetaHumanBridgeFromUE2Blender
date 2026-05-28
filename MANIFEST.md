@@ -1,25 +1,29 @@
 # MetaForge Bundle Manifest
 
-Created from workspace state after `0.1.40`.
+Created from workspace state after `0.1.50`.
 
 This manifest describes the source bundle that is safe to publish. Large local
-sample `.blend` files and MetaHuman exports are kept outside git; see
-`docs/PUBLIC_RELEASE.md`.
+sample `.blend` files, MetaHuman exports, GraceSwat project assets, screenshots,
+and generated release zips are kept outside git; see `docs/PUBLIC_RELEASE.md`.
 
 ## Core Hashes
 
 ```text
-BA906CECF2C6D04F191791C3B5EF6E189341C64F4367B189ECDAA23C3AE20BCE  addon/metahuman_blender_pipeline/__init__.py
-C501977F5517B7349A751B88476EA2F5C3396D8DB99D021BF3CE730E1AF7132B  ../BlendFiles/MetaForge/metahuman_pipeline_example_clean.blend (local only)
-0201C949B95D68079B68D1D587E1779879166CDD65946D51E835236112318103  docs/HANDOFF.md
-6D003C42795FAF6927907DFB177B6C263470117C645981DDE103D32BFAB01F34  docs/TEST_INDEX.md
+CD6DFAE1D9D6255705E0BC9594C4D708A58011475BD991950B5C0B0C583439F3  addon/metahuman_blender_pipeline/__init__.py
+3A4578D4D89976B9572A25F9038BFAF6DB680712EBEED57BFBAE18D9738369A3  README.md
+2DF0C05BFA9A5CF68BDB35F642F5B9AE8622BC6255D4DAAB5B555DE7332D49C4  RELEASE_NOTES.md
+1A23BD88CF574000FD5758F056CF570520CD6302697BA726DD6B697D9C2AAC51  docs/CLOTHING_WORKFLOW.md
+FCAB8C73A0EE9D56136DE677B62820B8AB753C255573DFD583C01372DFB79AD8  docs/TEST_INDEX.md
+C56DA56B75AEE6AA902D769F9716398E47458C1FD829CD0920331937DC78792C  tools/analyze/analyze_cloth_bind_smoke.py
+BDA03F6E8AE32F29C93A1F8472ADD66CD3096283D9B54DB3E87D57F53AA95847  tools/analyze/analyze_pose_as_rest_smoke.py
+480CF025BBBE3902EE1707823677C06A129B193930E0CAC0A87AE2DBFE02B8C6  tools/analyze/analyze_weight_paint_from_control_smoke.py
 ```
 
 ## Verified In This Bundle
 
-- `tools/analyze/analyze_torso_guide_handles.py`
-- `tools/analyze/analyze_language_builtin_torso_guides.py`
+- `tools/analyze/analyze_pose_as_rest_smoke.py`
+- `tools/analyze/analyze_cloth_bind_smoke.py`
+- `tools/analyze/analyze_weight_paint_from_control_smoke.py`
 
-Both were run against the local workspace sample in
-`../BlendFiles/MetaForge/metahuman_pipeline_example_clean.blend` and wrote
-passing results to `test_results/`.
+These were run with Blender 5.1.1 using `--background --factory-startup` and
+wrote passing JSON outputs to `test_results/`.

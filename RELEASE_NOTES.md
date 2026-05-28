@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.1.50
+
+Clothing and repair-focused developer release for the `metahuman_blender_pipeline` Blender add-on.
+
+### Added
+
+- `Repair MetaHuman Texture Index` relinks material texture nodes and image datablocks after a moved DCC export or missing local paths.
+- `Apply Current Pose as Rest` bakes the current ControlRig-driven deform rig pose into the rest pose and writes the visible mesh state back into mesh data so edit mode sees the permanent pose.
+- `Bind Selected Clothes to Body` now writes body bone weights directly into selected clothing/equipment vertex groups. It does not leave a live Data Transfer mapping behind.
+- `Paint Cloth Weights from ControlRig` lets the user select a clothing mesh plus a ControlRig handle, then enters Weight Paint with the corresponding bone vertex group active.
+
+### Changed
+
+- Clothing binding now samples the current visible body with a four-nearest-vertex blend and adds only the final Armature modifier to the clothing object.
+- Legacy clothing objects with leftover `MH_Cloth_Weight_Projection` Data Transfer modifiers are cleaned up when rebinding or entering the weight-paint helper.
+- The clothing and rest-pose flows have dedicated background smoke tests in `tools/analyze/`.
+
+### Validated
+
+- `analyze_pose_as_rest_smoke.py`
+- `analyze_cloth_bind_smoke.py`
+- `analyze_weight_paint_from_control_smoke.py`
+
+### Package
+
+Generate the install package with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version 0.1.50
+```
+
 ## v0.1.40
 
 Initial public developer release for the `metahuman_blender_pipeline` Blender add-on.

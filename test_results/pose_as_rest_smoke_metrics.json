@@ -1,0 +1,25 @@
+{
+  "version": [
+    0,
+    1,
+    50
+  ],
+  "result": {
+    "armature": "MH_Body_Root",
+    "body": "MH_Body_LOD0",
+    "timestamp": "20260527_152923",
+    "baked_control_constraints": 2,
+    "restored_control_constraints": 2,
+    "control_count": 1,
+    "baked_mesh_count": 1,
+    "skipped_meshes": []
+  },
+  "before_basis_delta": 0.0,
+  "after_basis_delta": 0.0,
+  "evaluated_mesh_point_delta": 1.1920928955078125e-07,
+  "control_constraints": {
+    "baked": 2,
+    "restored": 2
+  },
+  "failures": []
+}

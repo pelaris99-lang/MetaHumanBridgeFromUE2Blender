@@ -1,0 +1,38 @@
+{
+  "version": [
+    0,
+    1,
+    50
+  ],
+  "result": {
+    "object": "SmokeSleeve",
+    "control": "CTRL_MH_Bone",
+    "bone": "Bone",
+    "group": "Bone",
+    "armature": "MH_Body_Root",
+    "bake": {
+      "baked": true,
+      "manual_transfer": {
+        "assigned_vertices": 4,
+        "created_groups": 1,
+        "group_count": 1,
+        "samples_per_vertex": 4
+      },
+      "applied_modifiers": [
+        "MH_Cloth_Weight_Projection"
+      ],
+      "removed_modifiers": [],
+      "normalized": true,
+      "active_group_weight": 4.0
+    }
+  },
+  "active_object": "SmokeSleeve",
+  "active_group": "Bone",
+  "active_group_weight": 4.0,
+  "cloth_mode": "WEIGHT_PAINT",
+  "armature_modifiers": [
+    "MH_Cloth_Armature"
+  ],
+  "data_transfer_modifiers": [],
+  "failures": []
+}

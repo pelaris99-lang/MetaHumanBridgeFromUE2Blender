@@ -141,7 +141,7 @@
   <header>
     <div>
       <h1>MetaForge</h1>
-      <p class="lede">A Blender-side bridge for MetaHuman DCC exports: import the character, keep scale sane, connect materials, build usable control handles, and expose body-proportion workflows without hiding the technical state.</p>
+      <p class="lede">A Blender-side bridge for MetaHuman DCC exports: import the character, keep scale sane, connect materials, build usable control handles, bind clothing with direct bone weights, and expose body-proportion workflows without hiding the technical state.</p>
       <div class="actions">
         <a class="primary" href="README.md">Read the README</a>
         <a href="docs/ENGINEERING.md">Engineering Notes</a>
@@ -152,14 +152,14 @@
       <div class="node"><b>DCC Export</b><span>Point the add-on at a local MetaHuman DCC export instead of committing private sample assets.</span></div>
       <div class="node"><b>Import + Materials</b><span>Import body and face data, keep world scale stable, and connect texture maps where available.</span></div>
       <div class="node"><b>Control Rig</b><span>Build larger selectable Blender handles while preserving original deformation rigs.</span></div>
-      <div class="node"><b>Shape Tools</b><span>Use explicit body-proportion rebuilds, torso guides, mirroring, and bake/copy paths.</span></div>
+      <div class="node"><b>Clothing + Shape Tools</b><span>Write clothing weights directly, enter Weight Paint from ControlRig handles, and use explicit body-proportion rebuilds.</span></div>
     </div>
   </header>
   <main>
     <section>
       <h2>Release Status</h2>
       <div class="grid">
-        <div class="tile"><strong>Version</strong><code>0.1.40</code><br>Developer release extracted from a validated local safe-zone bundle.</div>
+        <div class="tile"><strong>Version</strong><code>0.1.50</code><br>Developer release extracted from a validated local safe-zone bundle.</div>
         <div class="tile"><strong>Add-on Package</strong><code>metahuman_blender_pipeline</code><br>Install through Blender Preferences as a zip.</div>
         <div class="tile"><strong>Asset Policy</strong>No MetaHuman exports, DNA, FBX, textures, or `.blend` scenes are committed to public git.</div>
       </div>
@@ -167,7 +167,7 @@
     <section>
       <h2>Install Package</h2>
       <p>Generate the Blender install zip locally:</p>
-      <pre><code>powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version 0.1.40</code></pre>
+      <pre><code>powershell -ExecutionPolicy Bypass -File .\scripts\package_release.ps1 -Version 0.1.50</code></pre>
       <p>The zip should contain <code>metahuman_blender_pipeline/</code> at the top level.</p>
     </section>
     <section>

@@ -11,6 +11,7 @@ The public repository intentionally excludes local MetaHuman sample exports and 
 - `*.blend1`, `*.blend2`
 - `__pycache__/` and `*.pyc`
 - generated release zips
+- user project clothing/equipment meshes and screenshots
 
 ## Why
 
@@ -31,3 +32,7 @@ addon/metahuman_blender_pipeline/bundled_metahuman/OutPut/
 ```
 
 That folder is ignored by git.
+
+## Current Public Surface
+
+As of `0.1.50`, the public source includes the clothing binding and Weight Paint helper code, but not the GraceSwat character, clothing meshes, screenshots, or local Blender scenes used to test the workflow.

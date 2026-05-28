@@ -1,5 +1,17 @@
 # Test And Debug Index
 
+## 2026-05-28 focused smoke tests
+
+- `tools/analyze/analyze_pose_as_rest_smoke.py`: validates applying a ControlRig-driven pose as rest while preserving evaluated mesh position and restoring ControlRig constraints.
+- `tools/analyze/analyze_cloth_bind_smoke.py`: validates direct clothing weight writing, stale armature cleanup, no live Data Transfer dependency, and the final `MH_Cloth_Armature` modifier.
+- `tools/analyze/analyze_weight_paint_from_control_smoke.py`: validates selecting clothing plus a ControlRig handle enters Weight Paint with the matching active bone vertex group and nonzero baked weights.
+
+Current result files:
+
+- `test_results/pose_as_rest_smoke_metrics.json`
+- `test_results/cloth_bind_smoke_metrics.json`
+- `test_results/weight_paint_from_control_smoke_metrics.json`
+
 本轮新增/更新脚本：
 
 - `.tmp/trace_unit_chain.py`：逐步追踪 raw import、LOD 重命名、重挂父级、Face 挂 Body、单位检测。用于定位删除 FBX Empty 后爆比例的根因。

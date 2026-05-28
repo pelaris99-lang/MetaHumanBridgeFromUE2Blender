@@ -1,36 +1,25 @@
 # Next Goals
 
-## 第一目标：单位链路稳定
+## Stabilize Clothing QA On Real Scenes
 
-验收标准：
+Acceptance criteria:
 
-- 干净工程导入后，`MH_Body_LOD0` 世界高度约 `1.4m` 到 `1.8m`。
-- 生成 Control Rig 后，角色世界高度不变。
-- 生成体形控制器后，角色世界高度不因为默认参数而变化。
-- 不依赖缩放根骨架来补救单位。
+- Re-run `Bind Selected Clothes to Body` on real clothing assets after applying the character rest pose.
+- Confirm the clothing object has direct bone vertex groups, one `MH_Cloth_Armature`, and no live Data Transfer mapping.
+- Use `Paint Cloth Weights from ControlRig` to manually clean sleeve, shoulder, vest, belt, and holster weights.
 
-## 第二目标：体形控制器不卡死
+## Keep The Public Package Lean
 
-验收标准：
+Acceptance criteria:
 
-- 用户在 Blender UI 里点击生成，应该能在可接受时间内完成。
-- 至少要有状态报告，不要像 Blender 死了一样。
-- 默认只处理 LOD0。
-- 支持跳过体形控制器，只做导入和 Control Rig。
+- Keep source, docs, scripts, and small JSON validation outputs in git.
+- Keep GraceSwat scenes, screenshots, DCC exports, textures, and generated release zips outside git.
+- Regenerate the install zip from `scripts/package_release.ps1` instead of committing binary packages.
 
-## 第三目标：保持当前可用的 Control Rig
+## Reduce Add-On Monolith Risk
 
-验收标准：
+Acceptance criteria:
 
-- 手柄可见，可选择。
-- UE 原生骨骼可隐藏。
-- 手柄略微调大即可，不重做。
-- 不再制造巨大 root 节点影响视图缩放。
-
-## 第四目标：回归到用户工程
-
-验收标准：
-
-- 先在干净工程保存测试 blend。
-- 目视检查通过后，再回到 `GraceSwat`。
-- 复制一套继续，不覆盖用户已改内容。
+- Split the large `addon/metahuman_blender_pipeline/__init__.py` only after the current clothing/rest-pose workflow has had real-scene testing.
+- Preserve the current UI labels and operator IDs during any refactor.
+- Keep smoke tests covering rest pose, clothing binding, and Weight Paint entry.
